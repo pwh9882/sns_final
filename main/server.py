@@ -4,6 +4,7 @@ import tkinter as tk
 import json
 from tkinter import scrolledtext
 from network_utils import get_netstat_info
+import time  # 추가
 
 
 class ChatServer:
@@ -108,6 +109,8 @@ class ChatServer:
         self.running = False
         # 모든 클라이언트에게 서버 종료 메시지 전송
         self.broadcast_message("### 서버가 종료되었습니다 ###")
+
+        # 모든 클라이언트 연결 종료
         for c in self.clients[:]:
             try:
                 c.close()
@@ -115,16 +118,25 @@ class ChatServer:
                 pass
         self.clients.clear()
         self.client_names.clear()
+
+        # 서버 소켓 종료
         if self.server_socket:
             try:
                 self.server_socket.shutdown(socket.SHUT_RDWR)
+            except:
+                pass
+            try:
                 self.server_socket.close()
             except:
                 pass
-        self.server_socket = None
+            self.server_socket = None
+
         self.log_message("서버 중지")
         self.update_client_count()
         self.refresh_netstat()
+
+        # 소켓이 완전히 닫히도록 잠시 대기
+        time.sleep(2)
 
     def start_server(self):
         if not self.running:
@@ -137,11 +149,13 @@ class ChatServer:
                 self.log_message(f"서버 시작: {self.host}:{self.port}")
                 threading.Thread(target=self.accept_clients, daemon=True).start()
                 self.refresh_netstat()
+                return True
             except OSError as e:
                 self.log_message(f"서버 시작 실패: {e}")
                 if self.server_socket:
                     self.server_socket.close()
                 self.running = False
+                return False  # 실패를 명시적으로 반환
 
     def update_client_count(self):
         if self.gui:
@@ -216,9 +230,14 @@ class ServerGUI:
         self.netstat_text.insert(tk.END, info)
 
     def start_server(self):
-        self.server.start_server()
-        self.start_button.config(state="disabled")
-        self.stop_button.config(state="normal")
+        success = self.server.start_server()
+        if success:
+            self.start_button.config(state="disabled")
+            self.stop_button.config(state="normal")
+        else:
+            # 서버 시작 실패 시 버튼 상태 복구
+            self.start_button.config(state="normal")
+            self.stop_button.config(state="disabled")
 
     def stop_server(self):
         self.server.stop_server()
