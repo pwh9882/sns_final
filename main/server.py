@@ -1,6 +1,7 @@
 import socket
 import threading
 import tkinter as tk
+import json
 from tkinter import scrolledtext
 from network_utils import get_netstat_info
 
@@ -15,6 +16,7 @@ class ChatServer:
         self.gui = None
         self.running = False
         self.user_count = 0
+        self.drawing_events = []  # 모든 드로잉 이벤트 저장
 
     def accept_clients(self):
         while self.running:
@@ -33,30 +35,61 @@ class ChatServer:
                 ).start()
                 self.update_client_count()
                 self.refresh_netstat()
+                # 새 클라이언트에게 현재까지의 그리기 데이터 전송
+                if self.drawing_events:
+                    try:
+                        for event in self.drawing_events:
+                            message = json.dumps(event) + "\n"
+                            client_socket.sendall(message.encode("utf-8"))
+                    except:
+                        pass
             except:
                 break
 
     def handle_client(self, client_socket):
         username = self.client_names.get(client_socket, "Unknown")
+
+        buffer = ""
         while self.running:
             try:
                 data = client_socket.recv(1024)
                 if not data:
                     break
-                message = data.decode("utf-8")
-                # 받은 메시지를 다른 클라이언트에게 브로드캐스트
-                send_msg = f"[{username}] {message}"
-                self.broadcast_message(send_msg, exclude=client_socket)
-                self.log_message(send_msg)
+                buffer += data.decode("utf-8")
+                while "\n" in buffer:
+                    line, buffer = buffer.split("\n", 1)
+                    if not line.strip():
+                        continue
+                    try:
+                        # JSON 메시지 파싱 시도
+                        message = json.loads(line)
+                        if isinstance(message, dict) and "type" in message:
+                            if message["type"] in ["draw", "clear"]:
+                                # 드로잉 이벤트 저장 및 브로드캐스트
+                                if message["type"] == "clear":
+                                    self.drawing_events.clear()
+                                else:
+                                    self.drawing_events.append(message)
+                                self.broadcast_message(line, exclude=None)
+                                continue
+                    except json.JSONDecodeError:
+                        pass
+                    # 일반 채팅 메시지 처리
+                    message = line
+                    send_msg = f"[{username}] {message}"
+                    self.broadcast_message(send_msg, exclude=client_socket)
+                    self.log_message(send_msg)
             except:
                 break
         self.remove_client(client_socket)
 
     def broadcast_message(self, message, exclude=None):
+        message += "\n"  # 메시지 구분을 위한 개행 추가
+        encoded_message = message.encode("utf-8")
         for c in self.clients[:]:
             if c != exclude:
                 try:
-                    c.sendall(message.encode("utf-8"))
+                    c.sendall(encoded_message)
                 except:
                     self.remove_client(c)
 

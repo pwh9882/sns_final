@@ -1,6 +1,7 @@
 import socket
 import threading
 import tkinter as tk
+import json
 from tkinter import scrolledtext
 from network_utils import (
     get_ifconfig_info,
@@ -39,14 +40,34 @@ class ChatClient:
                 return False
 
     def receive_messages(self):
+        buffer = ""
         while self.running:
             try:
                 data = self.client_socket.recv(1024)
                 if not data:
                     break
-                message = data.decode("utf-8")
-                self.append_message(message)
-            except:
+                buffer += data.decode("utf-8")
+                while "\n" in buffer:
+                    line, buffer = buffer.split("\n", 1)
+                    if not line.strip():
+                        continue
+                    try:
+                        message_dict = json.loads(line)
+                        if isinstance(message_dict, dict) and "type" in message_dict:
+                            if message_dict["type"] == "draw":
+                                self.gui.master.after(
+                                    0, self.gui.handle_draw_event, message_dict
+                                )
+                                continue
+                            elif message_dict["type"] == "clear":
+                                self.gui.master.after(0, self.gui.handle_clear_event)
+                                continue
+                    except json.JSONDecodeError:
+                        pass
+                    # 일반 채팅 메시지 처리
+                    self.gui.master.after(0, self.append_message, line)
+            except Exception as e:
+                self.log_debug(f"예외 발생: {e}")
                 break
         self.log_message("서버와의 연결이 종료되었습니다.")
         self.running = False
@@ -58,12 +79,39 @@ class ChatClient:
     def send_message(self, message):
         if self.running and message.strip():
             try:
-                self.client_socket.sendall(message.encode("utf-8"))
+                full_message = message + "\n"  # 메시지 구분을 위한 개행 추가
+                self.client_socket.sendall(full_message.encode("utf-8"))
                 self.append_message(f"나: {message}")  # 자신의 메시지를 GUI에 추가
                 return True
             except:
                 self.log_message("메시지 전송 실패")
                 self.disconnect()
+                return False
+
+    def send_draw_event(self, event_type, x, y):
+        if self.running:
+            try:
+                draw_data = {"type": "draw", "action": event_type, "x": x, "y": y}
+                full_message = (
+                    json.dumps(draw_data) + "\n"
+                )  # 메시지 구분을 위한 개행 추가
+                self.client_socket.sendall(full_message.encode("utf-8"))
+                return True
+            except:
+                self.log_message("드로잉 이벤트 전송 실패")
+                return False
+
+    def send_clear_event(self):
+        if self.running:
+            try:
+                clear_data = {"type": "clear"}
+                full_message = (
+                    json.dumps(clear_data) + "\n"
+                )  # 메시지 구분을 위한 개행 추가
+                self.client_socket.sendall(full_message.encode("utf-8"))
+                return True
+            except:
+                self.log_message("초기화 이벤트 전송 실패")
                 return False
 
     def append_message(self, msg):
@@ -75,9 +123,9 @@ class ChatClient:
         print(msg)
 
     def log_message(self, msg):
-        print(msg)
         if self.gui:
             self.gui.status_label.config(text=msg)
+        print(msg)
 
     def disconnect(self):
         self.running = False
@@ -150,7 +198,6 @@ class ClientGUI:
         utils_frame = tk.LabelFrame(master, text="네트워크 유틸리티", padx=5, pady=5)
         utils_frame.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
 
-        # ifconfig 정보
         tk.Label(utils_frame, text="시스템 네트워크 정보").pack(pady=(0, 5))
         self.ifconfig_button = tk.Button(
             utils_frame, text="네트워크 정보 조회", command=self.show_ifconfig_info
@@ -211,9 +258,25 @@ class ClientGUI:
         self.dns_result_label = tk.Label(dns_frame, text="", wraplength=200)
         self.dns_result_label.pack()
 
-        # 네트워크 상태(netstat) 영역 추가
+        # 공유 캔버스 영역을 새로운 컬럼(column=2)에 배치
+        canvas_frame = tk.LabelFrame(master, text="공유 캔버스", padx=5, pady=5)
+        canvas_frame.grid(row=0, column=2, sticky="nsew", padx=5, pady=5)
+
+        self.canvas = tk.Canvas(canvas_frame, width=400, height=300, bg="white")
+        self.canvas.pack(side=tk.TOP, pady=5)
+
+        self.clear_button = tk.Button(
+            canvas_frame, text="Clear", command=self.clear_canvas, state="disabled"
+        )
+        self.clear_button.pack(side=tk.BOTTOM, pady=5)
+
+        # 디버그용 텍스트 영역 추가
+        self.debug_text = tk.Text(canvas_frame, height=5, state="disabled")
+        self.debug_text.pack(side=tk.BOTTOM, fill=tk.X, pady=5)
+
+        # netstat 영역은 아래쪽(row=1)에 3컬럼을 모두 사용하도록 설정
         netstat_frame = tk.LabelFrame(master, text="포트 상태(netstat)", padx=5, pady=5)
-        netstat_frame.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=5, pady=5)
+        netstat_frame.grid(row=1, column=0, columnspan=3, sticky="nsew", padx=5, pady=5)
 
         self.netstat_text = scrolledtext.ScrolledText(
             netstat_frame, width=100, height=10
@@ -225,10 +288,18 @@ class ClientGUI:
         )
         self.netstat_button.pack()
 
-        # Grid 설정
+        self.drawing = False
+        self.local_last_x = None  # 로컬 드로잉용 변수
+        self.local_last_y = None
+        self.last_x = None  # 원격 드로잉용 변수
+        self.last_y = None
+
+        # Grid 설정 (3 컬럼 레이아웃)
         master.grid_columnconfigure(0, weight=1)
         master.grid_columnconfigure(1, weight=1)
+        master.grid_columnconfigure(2, weight=1)
         master.grid_rowconfigure(0, weight=1)
+        master.grid_rowconfigure(1, weight=0)
 
     def validate_ip_block(self, value):
         if value.isdigit() and 0 <= int(value) <= 255:
@@ -239,13 +310,14 @@ class ClientGUI:
             return False
 
     def connect_server(self):
-        self.client.connect_to_server()
-        if self.client.running:
+        if self.client.connect_to_server():
             self.update_connection_buttons(True)
+            self.enable_canvas()
 
     def disconnect_server(self):
         self.client.disconnect()
         self.update_connection_buttons(False)
+        self.disable_canvas()
 
     def update_connection_buttons(self, is_connected):
         if is_connected:
@@ -255,13 +327,74 @@ class ClientGUI:
             self.connect_button.config(state="normal")
             self.disconnect_button.config(state="disabled")
 
+    def enable_canvas(self):
+        self.canvas.bind("<Button-1>", self.start_draw)
+        self.canvas.bind("<B1-Motion>", self.draw)
+        self.canvas.bind("<ButtonRelease-1>", self.stop_draw)
+        self.clear_button.config(state="normal")
+
+    def disable_canvas(self):
+        self.canvas.unbind("<Button-1>")
+        self.canvas.unbind("<B1-Motion>")
+        self.canvas.unbind("<ButtonRelease-1>")
+        self.clear_button.config(state="disabled")
+
     def send_message(self):
         message = self.entry_message.get().strip()
         if message:
             if self.client.send_message(message):
                 self.entry_message.delete(0, tk.END)
-            # 성공 여부와 관계없이 입력 필드를 비웁니다.
             self.entry_message.delete(0, tk.END)
+
+    def start_draw(self, event):
+        self.drawing = True
+        self.local_last_x, self.local_last_y = event.x, event.y
+        self.client.send_draw_event("start", event.x, event.y)
+        self.log_debug(f"start_draw at ({event.x}, {event.y})")
+
+    def draw(self, event):
+        if self.drawing:
+            # 이전 좌표와 현재 좌표를 연결하는 선 그리기
+            self.canvas.create_line(
+                self.local_last_x,
+                self.local_last_y,
+                event.x,
+                event.y,
+                fill="black",
+                width=2,
+            )
+            self.client.send_draw_event("move", event.x, event.y)
+            self.log_debug(f"draw at ({event.x}, {event.y})")
+            self.local_last_x, self.local_last_y = event.x, event.y
+
+    def stop_draw(self, event):
+        if self.drawing:
+            self.drawing = False
+            self.client.send_draw_event("end", event.x, event.y)
+            self.log_debug(f"stop_draw at ({event.x}, {event.y})")
+
+    def handle_draw_event(self, event_data):
+        x, y = event_data["x"], event_data["y"]
+        if event_data["action"] == "start":
+            self.last_x = x
+            self.last_y = y
+        elif event_data["action"] == "move" and self.last_x is not None:
+            # 이전 좌표와 현재 좌표를 연결하는 선 그리기
+            self.canvas.create_line(
+                self.last_x, self.last_y, x, y, fill="black", width=2
+            )
+            self.last_x = x
+            self.last_y = y
+        elif event_data["action"] == "end":
+            self.last_x = None
+            self.last_y = None
+
+    def clear_canvas(self):
+        self.canvas.delete("all")
+        self.client.send_clear_event()
+
+    def handle_clear_event(self):
+        self.canvas.delete("all")
 
     def append_message(self, msg):
         self.chat_area.config(state="normal")
@@ -274,6 +407,13 @@ class ClientGUI:
         print(msg)
         if self.gui:
             self.gui.status_label.config(text=msg)
+
+    def log_debug(self, message):
+        self.debug_text.config(state="normal")
+        self.debug_text.insert(tk.END, message + "\n")
+        self.debug_text.see(tk.END)
+        self.debug_text.config(state="disabled")
+        print(message)
 
     # 네트워크 정보 관련 메서드
     def show_ifconfig_info(self):
@@ -317,7 +457,7 @@ class ClientGUI:
 
 
 if __name__ == "__main__":
-    # 메인 윈도우가 닫힐 때 클라이언트 종료를 보장하기 위한 함수
+
     def on_closing():
         if client:
             client.disconnect()
@@ -326,5 +466,5 @@ if __name__ == "__main__":
     root = tk.Tk()
     client = ChatClient(host="127.0.0.1", port=9000)
     gui = ClientGUI(root, client)
-    root.protocol("WM_DELETE_WINDOW", on_closing)  # 창 닫기 이벤트 처리
+    root.protocol("WM_DELETE_WINDOW", on_closing)
     root.mainloop()
