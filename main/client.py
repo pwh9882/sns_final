@@ -168,6 +168,7 @@ class ClientGUI:
 
         self.entry_message = tk.Entry(input_frame)
         self.entry_message.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.entry_message.bind("<Return>", self.send_message)  # Enter 키 이벤트 바인딩
 
         self.send_button = tk.Button(
             input_frame, text="전송", command=self.send_message
@@ -198,37 +199,37 @@ class ClientGUI:
         utils_frame = tk.LabelFrame(master, text="네트워크 유틸리티", padx=5, pady=5)
         utils_frame.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
 
+        # 시스템 네트워크 정보
         tk.Label(utils_frame, text="시스템 네트워크 정보").pack(pady=(0, 5))
         self.ifconfig_button = tk.Button(
             utils_frame, text="네트워크 정보 조회", command=self.show_ifconfig_info
         )
         self.ifconfig_button.pack()
         self.ifconfig_text = scrolledtext.ScrolledText(
-            utils_frame, wrap=tk.WORD, width=50, height=10
+            utils_frame, wrap=tk.WORD, width=50, height=10, state="disabled"
         )
         self.ifconfig_text.pack(pady=5)
 
         # 바이트 순서 변환
         byte_frame = tk.LabelFrame(utils_frame, text="바이트 순서 변환", padx=5, pady=5)
         byte_frame.pack(fill=tk.X, pady=5)
-
         tk.Label(byte_frame, text="변환할 정수 입력:").pack()
         self.byte_order_entry = tk.Entry(byte_frame)
         self.byte_order_entry.pack(fill=tk.X)
         tk.Button(
             byte_frame, text="변환", command=self.show_byte_order_conversion
         ).pack(pady=5)
-        self.byte_order_result = tk.Label(byte_frame, text="", wraplength=200)
-        self.byte_order_result.pack()
+        self.byte_order_result = scrolledtext.ScrolledText(
+            byte_frame, height=4, wrap=tk.WORD, state="disabled"
+        )
+        self.byte_order_result.pack(fill=tk.X)
 
         # IP 변환
         ip_frame = tk.LabelFrame(utils_frame, text="IP 주소 변환", padx=5, pady=5)
         ip_frame.pack(fill=tk.X, pady=5)
-
         tk.Label(ip_frame, text="IP 주소 입력:").pack()
         ip_entry_frame = tk.Frame(ip_frame)
         ip_entry_frame.pack(fill=tk.X)
-
         self.ip_blocks = []
         for i in range(4):
             block = tk.Entry(ip_entry_frame, width=3, validate="key")
@@ -236,27 +237,23 @@ class ClientGUI:
             if i < 3:
                 tk.Label(ip_entry_frame, text=".").pack(side=tk.LEFT)
             self.ip_blocks.append(block)
-
-        for block in self.ip_blocks:
-            block.config(
-                validate="key",
-                validatecommand=(master.register(self.validate_ip_block), "%P"),
-            )
-
         tk.Button(ip_frame, text="변환", command=self.show_ip_conversion).pack(pady=5)
-        self.ip_result_label = tk.Label(ip_frame, text="", wraplength=200)
-        self.ip_result_label.pack()
+        self.ip_result_text = scrolledtext.ScrolledText(
+            ip_frame, height=3, wrap=tk.WORD, state="disabled"
+        )
+        self.ip_result_text.pack(fill=tk.X)
 
         # DNS 조회
         dns_frame = tk.LabelFrame(utils_frame, text="DNS 조회", padx=5, pady=5)
         dns_frame.pack(fill=tk.X, pady=5)
-
         tk.Label(dns_frame, text="도메인 입력:").pack()
         self.dns_entry = tk.Entry(dns_frame)
         self.dns_entry.pack(fill=tk.X)
         tk.Button(dns_frame, text="조회", command=self.show_dns_conversion).pack(pady=5)
-        self.dns_result_label = tk.Label(dns_frame, text="", wraplength=200)
-        self.dns_result_label.pack()
+        self.dns_result_text = scrolledtext.ScrolledText(
+            dns_frame, height=3, wrap=tk.WORD, state="disabled"
+        )
+        self.dns_result_text.pack(fill=tk.X)
 
         # 공유 캔버스 영역을 새로운 컬럼(column=2)에 배치
         canvas_frame = tk.LabelFrame(master, text="공유 캔버스", padx=5, pady=5)
@@ -279,7 +276,7 @@ class ClientGUI:
         netstat_frame.grid(row=1, column=0, columnspan=3, sticky="nsew", padx=5, pady=5)
 
         self.netstat_text = scrolledtext.ScrolledText(
-            netstat_frame, width=100, height=10
+            netstat_frame, width=100, height=10, state="disabled"
         )
         self.netstat_text.pack(pady=(0, 5))
 
@@ -339,7 +336,7 @@ class ClientGUI:
         self.canvas.unbind("<ButtonRelease-1>")
         self.clear_button.config(state="disabled")
 
-    def send_message(self):
+    def send_message(self, event=None):
         message = self.entry_message.get().strip()
         if message:
             if self.client.send_message(message):
@@ -418,26 +415,40 @@ class ClientGUI:
     # 네트워크 정보 관련 메서드
     def show_ifconfig_info(self):
         info = get_ifconfig_info()
+        self.ifconfig_text.config(state="normal")
         self.ifconfig_text.delete("1.0", tk.END)
         self.ifconfig_text.insert(tk.END, info)
+        self.ifconfig_text.config(state="disabled")
 
     def show_byte_order_conversion(self):
         try:
             value = int(self.byte_order_entry.get())
             result = convert_byte_order(value)
-            self.byte_order_result.config(text=result)
+            self.byte_order_result.config(state="normal")
+            self.byte_order_result.delete("1.0", tk.END)
+            self.byte_order_result.insert(tk.END, result)
+            self.byte_order_result.config(state="disabled")
         except ValueError:
-            self.byte_order_result.config(text="올바른 정수를 입력하세요")
+            self.byte_order_result.config(state="normal")
+            self.byte_order_result.delete("1.0", tk.END)
+            self.byte_order_result.insert(tk.END, "올바른 정수를 입력하세요")
+            self.byte_order_result.config(state="disabled")
 
     def show_ip_conversion(self):
         ip = ".".join(block.get() for block in self.ip_blocks)
         result = convert_ip_address(ip)
-        self.ip_result_label.config(text=result)
+        self.ip_result_text.config(state="normal")
+        self.ip_result_text.delete("1.0", tk.END)
+        self.ip_result_text.insert(tk.END, result)
+        self.ip_result_text.config(state="disabled")
 
     def show_dns_conversion(self):
         domain = self.dns_entry.get()
         result = dns_lookup(domain)
-        self.dns_result_label.config(text=result)
+        self.dns_result_text.config(state="normal")
+        self.dns_result_text.delete("1.0", tk.END)
+        self.dns_result_text.insert(tk.END, result)
+        self.dns_result_text.config(state="disabled")
 
     def show_netstat_info(self):
         port = self.client.port if self.client.running else None
@@ -452,8 +463,10 @@ class ClientGUI:
             or (f"*.{port}" in line and "LISTEN" in line)  # 서버 리스닝 상태만 표시
         )
 
+        self.netstat_text.config(state="normal")
         self.netstat_text.delete("1.0", tk.END)
         self.netstat_text.insert(tk.END, filtered_info)
+        self.netstat_text.config(state="disabled")
 
 
 if __name__ == "__main__":

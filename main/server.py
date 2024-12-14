@@ -210,7 +210,7 @@ class ServerGUI:
         netstat_frame.grid(row=0, column=1, rowspan=3, padx=10, pady=10, sticky="n")
 
         self.netstat_text = scrolledtext.ScrolledText(
-            netstat_frame, width=60, height=20
+            netstat_frame, width=80, height=20
         )
         self.netstat_text.pack(pady=(0, 5))
 

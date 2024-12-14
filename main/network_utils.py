@@ -23,7 +23,11 @@ def convert_byte_order(value):
 
     network_order = socket.htonl(value)
     host_order = socket.ntohl(network_order)
-    return f"원본: {value}, htonl: {network_order}, ntohl: {host_order}"
+    return (
+        f"원본: {value} (0x{value:08x})\n"
+        f"네트워크 바이트 순서 (htonl): {network_order} (0x{network_order:08x})\n"
+        f"호스트 바이트 순서 (ntohl): {host_order} (0x{host_order:08x})"
+    )
 
 
 def convert_ip_address(ip_str):
