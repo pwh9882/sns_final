@@ -2,6 +2,12 @@ import socket
 import threading
 import tkinter as tk
 from tkinter import scrolledtext
+from network_utils import (
+    get_ifconfig_info,
+    convert_byte_order,
+    convert_ip_address,
+    dns_lookup,
+)
 
 
 class ChatClient:
@@ -86,38 +92,127 @@ class ClientGUI:
         self.client = client
         self.client.gui = self
 
-        master.title("클라이언트 GUI")
+        master.title("네트워크 채팅 클라이언트")
+        master.configure(padx=10, pady=10)
+
+        # 채팅 영역
+        chat_frame = tk.LabelFrame(master, text="채팅", padx=5, pady=5)
+        chat_frame.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
 
         self.chat_area = scrolledtext.ScrolledText(
-            master, state="disabled", width=50, height=20
+            chat_frame, state="disabled", width=50, height=20
         )
-        self.chat_area.grid(row=0, column=0, columnspan=2, padx=10, pady=10)
+        self.chat_area.pack(fill=tk.BOTH, expand=True)
 
-        self.entry_message = tk.Entry(master, width=40)
-        self.entry_message.grid(row=1, column=0, padx=10, sticky="w")
-        self.send_button = tk.Button(master, text="전송", command=self.send_message)
-        self.send_button.grid(row=1, column=1, sticky="e", padx=10)
+        # 메시지 입력 및 전송
+        input_frame = tk.Frame(chat_frame)
+        input_frame.pack(fill=tk.X, pady=(5, 0))
 
-        frame_buttons = tk.Frame(master)
-        frame_buttons.grid(row=2, column=0, columnspan=2, pady=5)
+        self.entry_message = tk.Entry(input_frame)
+        self.entry_message.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        self.send_button = tk.Button(
+            input_frame, text="전송", command=self.send_message
+        )
+        self.send_button.pack(side=tk.RIGHT, padx=(5, 0))
+
+        # 연결 제어 버튼
+        control_frame = tk.Frame(chat_frame)
+        control_frame.pack(fill=tk.X, pady=5)
 
         self.connect_button = tk.Button(
-            frame_buttons, text="서버 접속", command=self.connect_server
+            control_frame, text="서버 접속", command=self.connect_server
         )
         self.connect_button.pack(side=tk.LEFT, padx=5)
 
         self.disconnect_button = tk.Button(
-            frame_buttons,
+            control_frame,
             text="접속 해제",
             command=self.disconnect_server,
             state="disabled",
         )
         self.disconnect_button.pack(side=tk.LEFT, padx=5)
 
-        self.status_label = tk.Label(master, text="서버에 연결되지 않음")
-        self.status_label.grid(row=3, column=0, columnspan=2, pady=5)
+        self.status_label = tk.Label(control_frame, text="서버에 연결되지 않음")
+        self.status_label.pack(side=tk.RIGHT, padx=5)
 
-        self.entry_message.bind("<Return>", lambda e: self.send_message())
+        # 네트워크 유틸리티 영역
+        utils_frame = tk.LabelFrame(master, text="네트워크 유틸리티", padx=5, pady=5)
+        utils_frame.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
+
+        # ifconfig 정보
+        tk.Label(utils_frame, text="시스템 네트워크 정보").pack(pady=(0, 5))
+        self.ifconfig_button = tk.Button(
+            utils_frame, text="네트워크 정보 조회", command=self.show_ifconfig_info
+        )
+        self.ifconfig_button.pack()
+        self.ifconfig_text = scrolledtext.ScrolledText(
+            utils_frame, wrap=tk.WORD, width=50, height=10
+        )
+        self.ifconfig_text.pack(pady=5)
+
+        # 바이트 순서 변환
+        byte_frame = tk.LabelFrame(utils_frame, text="바이트 순서 변환", padx=5, pady=5)
+        byte_frame.pack(fill=tk.X, pady=5)
+
+        tk.Label(byte_frame, text="변환할 정수 입력:").pack()
+        self.byte_order_entry = tk.Entry(byte_frame)
+        self.byte_order_entry.pack(fill=tk.X)
+        tk.Button(
+            byte_frame, text="변환", command=self.show_byte_order_conversion
+        ).pack(pady=5)
+        self.byte_order_result = tk.Label(byte_frame, text="", wraplength=200)
+        self.byte_order_result.pack()
+
+        # IP 변환
+        ip_frame = tk.LabelFrame(utils_frame, text="IP 주소 변환", padx=5, pady=5)
+        ip_frame.pack(fill=tk.X, pady=5)
+
+        tk.Label(ip_frame, text="IP 주소 입력:").pack()
+        ip_entry_frame = tk.Frame(ip_frame)
+        ip_entry_frame.pack(fill=tk.X)
+
+        self.ip_blocks = []
+        for i in range(4):
+            block = tk.Entry(ip_entry_frame, width=3, validate="key")
+            block.pack(side=tk.LEFT)
+            if i < 3:
+                tk.Label(ip_entry_frame, text=".").pack(side=tk.LEFT)
+            self.ip_blocks.append(block)
+
+        for block in self.ip_blocks:
+            block.config(
+                validate="key",
+                validatecommand=(master.register(self.validate_ip_block), "%P"),
+            )
+
+        tk.Button(ip_frame, text="변환", command=self.show_ip_conversion).pack(pady=5)
+        self.ip_result_label = tk.Label(ip_frame, text="", wraplength=200)
+        self.ip_result_label.pack()
+
+        # DNS 조회
+        dns_frame = tk.LabelFrame(utils_frame, text="DNS 조회", padx=5, pady=5)
+        dns_frame.pack(fill=tk.X, pady=5)
+
+        tk.Label(dns_frame, text="도메인 입력:").pack()
+        self.dns_entry = tk.Entry(dns_frame)
+        self.dns_entry.pack(fill=tk.X)
+        tk.Button(dns_frame, text="조회", command=self.show_dns_conversion).pack(pady=5)
+        self.dns_result_label = tk.Label(dns_frame, text="", wraplength=200)
+        self.dns_result_label.pack()
+
+        # Grid 설정
+        master.grid_columnconfigure(0, weight=1)
+        master.grid_columnconfigure(1, weight=1)
+        master.grid_rowconfigure(0, weight=1)
+
+    def validate_ip_block(self, value):
+        if value.isdigit() and 0 <= int(value) <= 255:
+            return True
+        elif value == "":
+            return True
+        else:
+            return False
 
     def connect_server(self):
         self.client.connect_to_server()
@@ -128,7 +223,6 @@ class ClientGUI:
         self.client.disconnect()
         self.update_connection_buttons(False)
 
-    # 새로운 메서드 추가
     def update_connection_buttons(self, is_connected):
         if is_connected:
             self.connect_button.config(state="disabled")
@@ -144,6 +238,42 @@ class ClientGUI:
                 self.entry_message.delete(0, tk.END)
             # 성공 여부와 관계없이 입력 필드를 비웁니다.
             self.entry_message.delete(0, tk.END)
+
+    def append_message(self, msg):
+        self.chat_area.config(state="normal")
+        self.chat_area.insert(tk.END, msg + "\n")
+        self.chat_area.see(tk.END)
+        self.chat_area.config(state="disabled")
+        print(msg)
+
+    def log_message(self, msg):
+        print(msg)
+        if self.gui:
+            self.gui.status_label.config(text=msg)
+
+    # 네트워크 정보 관련 메서드
+    def show_ifconfig_info(self):
+        info = get_ifconfig_info()
+        self.ifconfig_text.delete("1.0", tk.END)
+        self.ifconfig_text.insert(tk.END, info)
+
+    def show_byte_order_conversion(self):
+        try:
+            value = int(self.byte_order_entry.get())
+            result = convert_byte_order(value)
+            self.byte_order_result.config(text=result)
+        except ValueError:
+            self.byte_order_result.config(text="올바른 정수를 입력하세요")
+
+    def show_ip_conversion(self):
+        ip = ".".join(block.get() for block in self.ip_blocks)
+        result = convert_ip_address(ip)
+        self.ip_result_label.config(text=result)
+
+    def show_dns_conversion(self):
+        domain = self.dns_entry.get()
+        result = dns_lookup(domain)
+        self.dns_result_label.config(text=result)
 
 
 if __name__ == "__main__":
