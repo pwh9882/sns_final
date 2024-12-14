@@ -49,3 +49,29 @@ def dns_lookup(domain):
         return f"도메인: {domain}, IP: {ip}, Reverse DNS: {reverse_domain}"
     except socket.error as e:
         return f"DNS 변환 오류: {e}"
+
+
+def get_netstat_info(port=None):
+    """
+    netstat 결과를 반환하는 함수.
+    port가 주어지면 해당 포트와 관련된 라인만 필터링.
+    Linux 계열에서 netstat -a -n -p tcp로 TCP 소켓 상태를 확인한다고 가정.
+    """
+    try:
+        result = subprocess.check_output(
+            ["netstat", "-a", "-n", "-p", "tcp"], stderr=subprocess.STDOUT
+        )
+        lines = result.decode("utf-8").splitlines()
+
+        if port:
+            filtered = [line for line in lines if f".{port}" in line]
+        else:
+            filtered = lines
+
+        return (
+            "\n".join(filtered)
+            if filtered
+            else "해당 포트 관련 netstat 정보가 없습니다."
+        )
+    except Exception as e:
+        return f"netstat 실행 오류: {e}"

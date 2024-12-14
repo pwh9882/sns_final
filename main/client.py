@@ -7,6 +7,7 @@ from network_utils import (
     convert_byte_order,
     convert_ip_address,
     dns_lookup,
+    get_netstat_info,
 )
 
 
@@ -17,15 +18,18 @@ class ChatClient:
         self.client_socket = None
         self.gui = None
         self.running = False
+        self.local_port = None
 
     def connect_to_server(self):
         if not self.running:
             try:
                 self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.client_socket.connect((self.host, self.port))
+                self.local_port = self.client_socket.getsockname()[1]
                 self.running = True
                 self.log_message("서버에 연결되었습니다.")
                 threading.Thread(target=self.receive_messages, daemon=True).start()
+                self.refresh_netstat()
                 return True
             except Exception as e:
                 self.log_message(f"서버 접속 실패: {e}")
@@ -49,6 +53,7 @@ class ChatClient:
         # GUI 버튼 상태 업데이트
         if self.gui:
             self.gui.update_connection_buttons(False)
+        self.refresh_netstat()
 
     def send_message(self, message):
         if self.running and message.strip():
@@ -84,6 +89,11 @@ class ChatClient:
                 pass
         self.client_socket = None
         self.log_message("서버와의 연결이 해제되었습니다.")
+        self.refresh_netstat()
+
+    def refresh_netstat(self):
+        if self.gui:
+            self.gui.show_netstat_info()
 
 
 class ClientGUI:
@@ -201,6 +211,20 @@ class ClientGUI:
         self.dns_result_label = tk.Label(dns_frame, text="", wraplength=200)
         self.dns_result_label.pack()
 
+        # 네트워크 상태(netstat) 영역 추가
+        netstat_frame = tk.LabelFrame(master, text="포트 상태(netstat)", padx=5, pady=5)
+        netstat_frame.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=5, pady=5)
+
+        self.netstat_text = scrolledtext.ScrolledText(
+            netstat_frame, width=100, height=10
+        )
+        self.netstat_text.pack(pady=(0, 5))
+
+        self.netstat_button = tk.Button(
+            netstat_frame, text="netstat 조회", command=self.show_netstat_info
+        )
+        self.netstat_button.pack()
+
         # Grid 설정
         master.grid_columnconfigure(0, weight=1)
         master.grid_columnconfigure(1, weight=1)
@@ -274,6 +298,22 @@ class ClientGUI:
         domain = self.dns_entry.get()
         result = dns_lookup(domain)
         self.dns_result_label.config(text=result)
+
+    def show_netstat_info(self):
+        port = self.client.port if self.client.running else None
+        local_port = self.client.local_port if self.client.local_port else ""
+
+        info = get_netstat_info(port)
+        # 현재 클라이언트의 local_port만 필터링
+        filtered_info = "\n".join(
+            line
+            for line in info.splitlines()
+            if (f".{local_port}" in line and f".{port}" in line)  # 현재 클라이언트 연결
+            or (f"*.{port}" in line and "LISTEN" in line)  # 서버 리스닝 상태만 표시
+        )
+
+        self.netstat_text.delete("1.0", tk.END)
+        self.netstat_text.insert(tk.END, filtered_info)
 
 
 if __name__ == "__main__":

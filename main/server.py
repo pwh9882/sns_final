@@ -2,6 +2,7 @@ import socket
 import threading
 import tkinter as tk
 from tkinter import scrolledtext
+from network_utils import get_netstat_info
 
 
 class ChatServer:
@@ -31,6 +32,7 @@ class ChatServer:
                     target=self.handle_client, args=(client_socket,), daemon=True
                 ).start()
                 self.update_client_count()
+                self.refresh_netstat()
             except:
                 break
 
@@ -67,6 +69,7 @@ class ChatServer:
             # 사용자 퇴장을 모든 클라이언트에게 알림
             self.broadcast_message(f"### {uname} 퇴장 ###")
             self.update_client_count()
+            self.refresh_netstat()
 
     def stop_server(self):
         self.running = False
@@ -88,6 +91,7 @@ class ChatServer:
         self.server_socket = None
         self.log_message("서버 중지")
         self.update_client_count()
+        self.refresh_netstat()
 
     def start_server(self):
         if not self.running:
@@ -99,6 +103,7 @@ class ChatServer:
                 self.running = True
                 self.log_message(f"서버 시작: {self.host}:{self.port}")
                 threading.Thread(target=self.accept_clients, daemon=True).start()
+                self.refresh_netstat()
             except OSError as e:
                 self.log_message(f"서버 시작 실패: {e}")
                 if self.server_socket:
@@ -119,6 +124,10 @@ class ChatServer:
             self.gui.log_area.config(state="disabled")
         print(msg)
 
+    def refresh_netstat(self):
+        if self.gui:
+            self.gui.show_netstat_info()
+
 
 class ServerGUI:
     def __init__(self, master, server: ChatServer):
@@ -131,7 +140,7 @@ class ServerGUI:
         self.log_area = scrolledtext.ScrolledText(
             master, state="disabled", width=50, height=20
         )
-        self.log_area.grid(row=0, column=0, padx=10, pady=10)
+        self.log_area.grid(row=0, column=0, padx=10, pady=10, sticky="n")
 
         self.client_count_label = tk.Label(master, text="현재 클라이언트 수: 0")
         self.client_count_label.grid(row=1, column=0, sticky="w", padx=10)
@@ -148,6 +157,30 @@ class ServerGUI:
             frame_buttons, text="서버 중지", command=self.stop_server, state="disabled"
         )
         self.stop_button.pack(side=tk.LEFT, padx=5)
+
+        # --- netstat 결과 표시를 위한 UI 추가 ---
+        netstat_frame = tk.LabelFrame(master, text="포트 상태(netstat)", padx=5, pady=5)
+        netstat_frame.grid(row=0, column=1, rowspan=3, padx=10, pady=10, sticky="n")
+
+        self.netstat_text = scrolledtext.ScrolledText(
+            netstat_frame, width=60, height=20
+        )
+        self.netstat_text.pack(pady=(0, 5))
+
+        self.netstat_button = tk.Button(
+            netstat_frame, text="netstat 조회", command=self.show_netstat_info
+        )
+        self.netstat_button.pack()
+
+        # Grid 설정
+        master.grid_columnconfigure(0, weight=1)
+        master.grid_columnconfigure(1, weight=1)
+
+    def show_netstat_info(self):
+        port = self.server.port
+        info = get_netstat_info(port)
+        self.netstat_text.delete("1.0", tk.END)
+        self.netstat_text.insert(tk.END, info)
 
     def start_server(self):
         self.server.start_server()
